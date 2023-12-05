@@ -300,6 +300,77 @@ func (s *Set) GetOrCreateGauge(name string, f func() float64) *Gauge {
 	return g
 }
 
+// NewTimedGauge registers and returns gauge with the given name in s, which calls f
+// to obtain gauge value and timestamp associated with the value.
+//
+// name must be valid Prometheus-compatible metric with possible labels.
+// For instance,
+//
+//   - foo
+//   - foo{bar="baz"}
+//   - foo{bar="baz",aaa="b"}
+//
+// f must be safe for concurrent calls.
+//
+// The returned gauge is safe to use from concurrent goroutines.
+func (s *Set) NewTimedGauge(name string, f func() (int64, float64)) *TimedGauge {
+	if f == nil {
+		panic(fmt.Errorf("BUG: f cannot be nil"))
+	}
+	g := &TimedGauge{
+		f: f,
+	}
+	s.registerMetric(name, g)
+	return g
+}
+
+// GetOrCreateTimedGauge returns registered gauge with the given name in s
+// or creates new gauge if s doesn't contain gauge with the given name.
+//
+// name must be valid Prometheus-compatible metric with possible labels.
+// For instance,
+//
+//   - foo
+//   - foo{bar="baz"}
+//   - foo{bar="baz",aaa="b"}
+//
+// The returned gauge is safe to use from concurrent goroutines.
+//
+// Performance tip: prefer NewTimedGauge instead of GetOrCreateTimedGauge.
+func (s *Set) GetOrCreateTimedGauge(name string, f func() (int64, float64)) *TimedGauge {
+	s.mu.Lock()
+	nm := s.m[name]
+	s.mu.Unlock()
+	if nm == nil {
+		// Slow path - create and register missing gauge.
+		if f == nil {
+			panic(fmt.Errorf("BUG: f cannot be nil"))
+		}
+		if err := validateMetric(name); err != nil {
+			panic(fmt.Errorf("BUG: invalid metric name %q: %s", name, err))
+		}
+		nmNew := &namedMetric{
+			name: name,
+			metric: &TimedGauge{
+				f: f,
+			},
+		}
+		s.mu.Lock()
+		nm = s.m[name]
+		if nm == nil {
+			nm = nmNew
+			s.m[name] = nm
+			s.a = append(s.a, nm)
+		}
+		s.mu.Unlock()
+	}
+	g, ok := nm.metric.(*TimedGauge)
+	if !ok {
+		panic(fmt.Errorf("BUG: metric %q isn't a TimedGauge. It is %T", name, nm.metric))
+	}
+	return g
+}
+
 // NewSummary creates and returns new summary with the given name in s.
 //
 // name must be valid Prometheus-compatible metric with possible labels.

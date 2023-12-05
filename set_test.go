@@ -25,6 +25,10 @@ func TestNewSet(t *testing.T) {
 			if v := g.Get(); v != 123 {
 				t.Fatalf("unexpected gauge value; got %v; want %v", v, 123)
 			}
+			tg := s.NewTimedGauge(fmt.Sprintf("timed_gauge_%d", j), func() (int64, float64) { return 1234567890, 123 })
+			if tm, v := tg.Get(); tm != 1234567890 && v != 123 {
+				t.Fatalf("unexpected gauge value; got %d %v; want %d %v", tm, v, 1234567890, 123)
+			}
 			sm := s.NewSummary(fmt.Sprintf("summary_%d", j))
 			if sm == nil {
 				t.Fatalf("NewSummary returned nil")
@@ -73,7 +77,8 @@ func TestSetUnregisterAllMetrics(t *testing.T) {
 			_ = s.NewSummary(fmt.Sprintf("summary_%d", i))
 			_ = s.NewHistogram(fmt.Sprintf("histogram_%d", i))
 			_ = s.NewGauge(fmt.Sprintf("gauge_%d", i), func() float64 { return 0 })
-			expectedMetricsCount += 4
+			_ = s.NewTimedGauge(fmt.Sprintf("timed_gauge_%d", i), func() (int64, float64) { return 1234567890, 0 })
+			expectedMetricsCount += 5
 		}
 		if mns := s.ListMetricNames(); len(mns) != expectedMetricsCount {
 			t.Fatalf("unexpected number of metric names on iteration %d; got %d; want %d;\nmetric names:\n%q", j, len(mns), expectedMetricsCount, mns)
@@ -162,6 +167,10 @@ func TestRegisterUnregister(t *testing.T) {
 				gauge := fmt.Sprintf(`gauge{iteration="%d"}`, iteration)
 				GetOrCreateGauge(gauge, func() float64 { return 1 })
 				UnregisterMetric(gauge)
+
+				timedGauge := fmt.Sprintf(`timed_gauge{iteration="%d"}`, iteration)
+				GetOrCreateTimedGauge(timedGauge, func() (int64, float64) { return 1234567890, 1 })
+				UnregisterMetric(timedGauge)
 
 				summary := fmt.Sprintf(`summary{iteration="%d"}`, iteration)
 				GetOrCreateSummary(summary).Update(float64(i))
